@@ -1,3 +1,7 @@
+"""
+Includes a small bundle of helpful assertion functions.
+"""
+
 from pathlib import Path
 
 import requests

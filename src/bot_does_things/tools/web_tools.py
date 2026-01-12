@@ -1,3 +1,7 @@
+"""
+Includes tools to interact with the web.
+"""
+
 import hashlib
 import mimetypes
 import re
@@ -8,8 +12,17 @@ import requests
 from html_to_markdown import convert, convert_with_metadata
 from langchain_community.utilities import GoogleSerperAPIWrapper
 
-from .assertions import assert_int_ge, assert_non_empty_str, raise_for_status
-from .config import DOWNLOAD_DIR, SERPPER_API_KEY, USER_AGENT
+from bot_does_things.assertions import (
+    assert_int_ge,
+    assert_non_empty_str,
+    raise_for_status,
+)
+from bot_does_things.config import (
+    DOWNLOAD_DIR,
+    SERPPER_API_KEY,
+    USER_AGENT,
+)
+from bot_does_things.tool_wrapper import tool_wrapper
 
 
 def _web_search(query: str, max_results: int = 10) -> list[dict]:
@@ -35,6 +48,7 @@ def _web_search(query: str, max_results: int = 10) -> list[dict]:
     return organic
 
 
+@tool_wrapper
 def search_web(
     query: str,
     max_results: int = 10,
@@ -71,6 +85,7 @@ def search_web(
     return _web_search(q, max_results=max_results)
 
 
+@tool_wrapper
 def download_file(
     url: str,
     dest_dir: str = DOWNLOAD_DIR,
@@ -144,6 +159,7 @@ def download_file(
     return str(dest)
 
 
+@tool_wrapper
 def fetch_url(
     url: str,
     timeout: int = 60,
@@ -198,6 +214,7 @@ def fetch_url(
     }
 
 
+@tool_wrapper
 def extract_main_content(html: str) -> str:
     """
     Extracts the main content from an HTML string.
@@ -241,6 +258,7 @@ def extract_main_content(html: str) -> str:
     return content
 
 
+@tool_wrapper
 def retrieve_webpage(
     url: str, only_text: bool = True, main_content: bool = True
 ) -> str:

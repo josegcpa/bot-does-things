@@ -1,3 +1,7 @@
+"""
+Includes configuration for this package package.
+"""
+
 import os
 
 OLLAMA_BASE_URL = os.environ.get(
@@ -12,3 +16,4 @@ DOWNLOAD_DIR = "./data/downloads"
 SERPPER_API_KEY = os.environ.get("SERPER_API_KEY", None)
 LOGGING_LEVEL = os.environ.get("LOGGING_LEVEL", "INFO")
 CACHE_DIR = "./data/cache"
+RETURN_EXCEPTION_AS_STR = bool(os.environ.get("RETURN_EXCEPTION_AS_STR", False))

@@ -1,3 +1,7 @@
+"""
+Wrapper for all tools in the bot_does_things package.
+"""
+
 import logging
 import os
 
@@ -8,7 +12,7 @@ from bot_does_things.config import (
     SERPPER_API_KEY,
     USER_AGENT,
 )
-from bot_does_things.local_io import (
+from bot_does_things.tools.local_io import (
     list_files_tree,
     load_pdf,
     read_file,
@@ -18,15 +22,15 @@ from bot_does_things.local_io import (
     search_files,
     write_file,
 )
-from bot_does_things.web_tools import (
+from bot_does_things.tools.web_tools import (
     download_file,
     extract_main_content,
     fetch_url,
     retrieve_webpage,
     search_web,
 )
-from bot_does_things.image_tools import interpret_image, ocr_image
-from bot_does_things.general_tools import (
+from bot_does_things.tools.image_tools import interpret_image, ocr_image
+from bot_does_things.tools.general_tools import (
     now,
     cache_get,
     cache_set,

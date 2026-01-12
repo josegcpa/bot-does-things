@@ -1,3 +1,7 @@
+"""
+Includes tools to interact with images.
+"""
+
 import base64
 import mimetypes
 import os
@@ -5,10 +9,12 @@ import os
 from langchain_community.chat_models import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
-from .assertions import assert_non_empty_str, assert_file_exists
-from .config import OLLAMA_BASE_URL
+from bot_does_things.assertions import assert_non_empty_str, assert_file_exists
+from bot_does_things.config import OLLAMA_BASE_URL
+from bot_does_things.tool_wrapper import tool_wrapper
 
 
+@tool_wrapper
 def interpret_image(image_path: str, query: str) -> str:
     """
     Uses an LLM to interpret an image and answer a question about it.
@@ -52,6 +58,7 @@ def interpret_image(image_path: str, query: str) -> str:
     return result.content
 
 
+@tool_wrapper
 def ocr_image(image_path: str) -> str:
     """
     Extract text from an image using OCR.

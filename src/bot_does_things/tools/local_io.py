@@ -1,3 +1,7 @@
+"""
+Includes to interact with the local filesystem.
+"""
+
 import json
 import os
 import re
@@ -6,15 +10,17 @@ from typing import Iterable
 import pandas as pd
 from langchain_community.document_loaders import PyPDFLoader
 
-from .assertions import (
+from bot_does_things.assertions import (
     assert_file_exists,
     assert_int_ge,
     assert_non_empty_str,
 )
+from bot_does_things.tool_wrapper import tool_wrapper
 
 DOWNLOAD_DIR = "./data/downloads"
 
 
+@tool_wrapper
 def read_file(file_path: str) -> str:
     """
     Read a file and return its contents as a string.
@@ -30,6 +36,7 @@ def read_file(file_path: str) -> str:
         return f.read()
 
 
+@tool_wrapper
 def read_file_range(
     file_path: str,
     start_line: int = 1,
@@ -72,6 +79,7 @@ def read_file_range(
     return "".join(out_lines)
 
 
+@tool_wrapper
 def read_json(file_path: str, max_chars: int = 20000) -> str:
     """
     Read a JSON file and return its contents as a string.
@@ -95,6 +103,7 @@ def read_json(file_path: str, max_chars: int = 20000) -> str:
     return text
 
 
+@tool_wrapper
 def write_file(file_path: str, content: str) -> str:
     """
     Write content to a file.
@@ -115,6 +124,7 @@ def write_file(file_path: str, content: str) -> str:
     return f"File {file_path} written successfully."
 
 
+@tool_wrapper
 def read_table(file_path: str, max_rows: int = 25) -> str:
     """
     Read a table from a file and return it as a string.
@@ -145,6 +155,7 @@ def read_table(file_path: str, max_rows: int = 25) -> str:
     return df.to_string(max_rows=max_rows)
 
 
+@tool_wrapper
 def list_files_tree(
     directory: str = ".",
     max_depth: int = 2,
@@ -206,6 +217,7 @@ def list_files_tree(
     return "\n".join(lines)
 
 
+@tool_wrapper
 def search_files(
     directory: str = ".",
     file_regex: str = r".*",
@@ -300,6 +312,7 @@ def search_files(
     return "\n".join(matches)
 
 
+@tool_wrapper
 def load_pdf(file_path: str) -> str:
     """
     Load a PDF file and return its text content.

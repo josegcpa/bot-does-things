@@ -1,3 +1,7 @@
+"""
+Includes tools which are too generic to include in any other module.
+"""
+
 import re
 import datetime
 import hashlib
@@ -8,6 +12,7 @@ from pathlib import Path
 
 from bot_does_things.config import CACHE_DIR
 from bot_does_things.assertions import assert_int_ge, assert_non_empty_str
+from bot_does_things.tool_wrapper import tool_wrapper
 
 MATH_EXPRESSIONS = ["sin", "cos", "tan"]
 # add arc
@@ -19,6 +24,8 @@ MATH_EXPRESSIONS.extend(["pi", "e", "inf"])
 # add other functions
 MATH_EXPRESSIONS.extend(["log", "exp", "sqrt", "abs"])
 
+
+@tool_wrapper
 def now() -> str:
     """
     Get the current UTC time.
@@ -29,6 +36,7 @@ def now() -> str:
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
+@tool_wrapper
 def cache_set(
     key: str,
     value: str,
@@ -58,6 +66,7 @@ def cache_set(
     return str(p)
 
 
+@tool_wrapper
 def cache_get(key: str) -> str | None:
     assert_non_empty_str(key, "key")
 
@@ -96,6 +105,7 @@ def cache_get(key: str) -> str | None:
     return val if isinstance(val, str) else None
 
 
+@tool_wrapper
 def calculator(expression: str) -> int | float:
     f"""
     Returns the value of a mathematical expression.
@@ -121,6 +131,7 @@ def calculator(expression: str) -> int | float:
     return eval(expression)
 
 
+@tool_wrapper
 def generate_random_integer(min: int, max: int) -> int:
     """
     Returns a random integer between min and max (inclusive).
@@ -135,6 +146,7 @@ def generate_random_integer(min: int, max: int) -> int:
     return random.randint(min, max)
 
 
+@tool_wrapper
 def generate_random_float(min: float, max: float) -> float:
     """
     Returns a random float between min and max (inclusive).
