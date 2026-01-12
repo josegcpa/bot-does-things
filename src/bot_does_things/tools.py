@@ -26,7 +26,14 @@ from bot_does_things.web_tools import (
     search_web,
 )
 from bot_does_things.image_tools import interpret_image, ocr_image
-from bot_does_things.general_tools import now, cache_get, cache_set
+from bot_does_things.general_tools import (
+    now,
+    cache_get,
+    cache_set,
+    calculator,
+    generate_random_integer,
+    generate_random_float,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -66,6 +73,9 @@ TOOLS = {
     "now": now,
     "cache_get": cache_get,
     "cache_set": cache_set,
+    "calculator": calculator,
+    "generate_random_integer": generate_random_integer,
+    "generate_random_float": generate_random_float,
     "search_web": search_web,
     "fetch_url": fetch_url,
     "extract_main_content": extract_main_content,
@@ -137,6 +147,9 @@ if __name__ == "__main__":
         "now": [],
         "cache_set": ["k", "v", 60],
         "cache_get": ["k"],
+        "calculator": ["2 + 2"],
+        "generate_random_integer": [1, 10],
+        "generate_random_float": [0.0, 1.0],
         "search_web": ["Example Domain"],
         "fetch_url": ["https://www.wikipedia.org/"],
         "extract_main_content": [
