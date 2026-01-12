@@ -36,12 +36,14 @@ logger.addHandler(
 )
 logger.setLevel(LOGGING_LEVEL)
 
-for key, value in {
+env_vars = {
     "OLLAMA_BASE_URL": OLLAMA_BASE_URL,
     "USER_AGENT": USER_AGENT,
     "DOWNLOAD_DIR": DOWNLOAD_DIR,
     "LOGGING_LEVEL": LOGGING_LEVEL,
-}:
+}
+
+for key, value in env_vars.items():
     logger.info(f"{key}: {value}")
 
 if not SERPPER_API_KEY:
