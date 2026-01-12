@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import json
 import math
+import random
 from pathlib import Path
 
 from bot_does_things.config import CACHE_DIR
@@ -118,3 +119,17 @@ def calculator(expression: str) -> int | float:
             expression = expression.replace(char, f"math.{char}")
 
     return eval(expression)
+
+
+def generate_random_number(min: int, max: int) -> int:
+    """
+    Returns a random number between min and max.
+
+    Args:
+        min (int): The minimum value.
+        max (int): The maximum value.
+
+    Returns:
+        int: A random number between min and max.
+    """
+    return random.randint(min, max)
