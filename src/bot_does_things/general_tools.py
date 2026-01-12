@@ -121,15 +121,29 @@ def calculator(expression: str) -> int | float:
     return eval(expression)
 
 
-def generate_random_number(min: int, max: int) -> int:
+def generate_random_integer(min: int, max: int) -> int:
     """
-    Returns a random number between min and max.
+    Returns a random integer between min and max (inclusive).
 
     Args:
         min (int): The minimum value.
         max (int): The maximum value.
 
     Returns:
-        int: A random number between min and max.
+        int: A random integer between min and max (inclusive).
     """
     return random.randint(min, max)
+
+
+def generate_random_float(min: float, max: float) -> float:
+    """
+    Returns a random float between min and max (inclusive).
+
+    Args:
+        min (float): The minimum value.
+        max (float): The maximum value.
+
+    Returns:
+        float: A random float between min and max (inclusive).
+    """
+    return random.uniform(min, max)
