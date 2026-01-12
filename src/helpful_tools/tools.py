@@ -6,6 +6,7 @@ import re
 import urllib.parse
 import logging
 from pathlib import Path
+from typing import Iterable
 
 import requests
 from langchain_community.chat_models import ChatOpenAI
@@ -29,11 +30,9 @@ LOGGING_LEVEL = os.environ.get("LOGGING_LEVEL", "INFO")
 
 logger = logging.getLogger(__name__)
 logger.handlers = []
-logger.addHandler(
-    logging.StreamHandler(
-        logging.Formatter("%(levelname)s:%(name)s:%(message)s")
-    )
-)
+_handler = logging.StreamHandler()
+_handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
+logger.addHandler(_handler)
 logger.setLevel(LOGGING_LEVEL)
 
 env_vars = {
@@ -71,6 +70,101 @@ def read_file(file_path: str) -> str:
     """
     with open(file_path, "r") as f:
         return f.read()
+
+
+def write_file(file_path: str, content: str) -> str:
+    """
+    Writes content to a text file.
+
+    Args:
+        file_path (str): The path to the file to write.
+        content (str): The content to write to the file.
+
+    Returns:
+        str: A message indicating the result of the operation.
+    """
+    if os.path.exists(file_path):
+        raise FileExistsError(f"File {file_path} already exists.")
+    with open(file_path, "w") as f:
+        f.write(content)
+    return f"File {file_path} written successfully."
+
+
+def list_files(directory: str = ".", max_depth: int = 2) -> str:
+    """
+    Lists files in a directory using a simple tree structure.
+
+    If a directory has more than 10 entries, it shows the first 10 (sorted) and
+    summarizes the remainder.
+
+    Args:
+        directory: Directory to list.
+        max_depth: Maximum recursion depth.
+
+    Returns:
+        A tree-like string.
+    """
+    root = Path(directory)
+    if not root.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+    if not root.is_dir():
+        raise NotADirectoryError(f"Not a directory: {directory}")
+
+    def _iter_entries(p: Path) -> list[Path]:
+        entries = list(p.iterdir())
+        entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+        return entries
+
+    def _tree_lines(p: Path, prefix: str, depth: int) -> Iterable[str]:
+        if depth > max_depth:
+            return
+
+        entries = _iter_entries(p)
+        shown = entries[:10]
+        remaining = len(entries) - len(shown)
+
+        for i, child in enumerate(shown):
+            is_last = (i == len(shown) - 1) and remaining == 0
+            branch = "`-- " if is_last else "|-- "
+            yield f"{prefix}{branch}{child.name}{'/' if child.is_dir() else ''}"
+
+            if child.is_dir() and depth < max_depth:
+                extension = "    " if is_last else "|   "
+                yield from _tree_lines(child, prefix + extension, depth + 1)
+
+        if remaining > 0:
+            yield f"{prefix}|-- ... (+{remaining} more)"
+
+    lines = [str(root)]
+    lines.extend(_tree_lines(root, prefix="", depth=1) or [])
+    return "\n".join(lines)
+
+
+def search_files(directory: str = ".", regex: str = r"\.csv$") -> list[str]:
+    """
+    Search files by matching a regex against the filename.
+
+    This is intended for filtering by termination/extension.
+
+    Args:
+        directory: Directory root to search.
+        regex: Regex applied to filenames (e.g. r"\.md$", r"\.csv$").
+
+    Returns:
+        List of matching file paths.
+    """
+    root = Path(directory)
+    if not root.exists():
+        raise FileNotFoundError(f"Directory not found: {directory}")
+
+    pattern = re.compile(regex)
+    matches: list[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for fn in filenames:
+            if pattern.search(fn):
+                matches.append(str(Path(dirpath) / fn))
+    matches.sort()
+    return matches
 
 
 def interpret_image(image_path: str, query: str) -> str:
@@ -330,6 +424,9 @@ def retrieve_webpage(url: str, only_text: bool = True) -> str:
 
 TOOLS = {
     "read_file": read_file,
+    "write_file": write_file,
+    "list_files": list_files,
+    "search_files": search_files,
     "interpret_image": interpret_image,
     "read_table": read_table,
     "load_pdf": load_pdf,
@@ -368,8 +465,15 @@ if __name__ == "__main__":
         r.raise_for_status()
         sample_png.write_bytes(r.content)
 
+    sample_written = out_dir / "_sample_written.txt"
+    if sample_written.exists():
+        os.remove(str(sample_written))
+
     test_args = {
         "read_file": [str(sample_txt)],
+        "write_file": [str(out_dir / "_sample_written.txt"), "hello"],
+        "list_files": [str(out_dir)],
+        "search_files": [str(out_dir), r"\.csv$"],
         "read_table": [str(sample_csv)],
         "load_pdf": [str(sample_pdf)],
         "web_search": ["Example Domain"],
