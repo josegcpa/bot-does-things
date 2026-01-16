@@ -107,14 +107,12 @@ def cache_get(key: str) -> str | None:
 
 @tool_wrapper
 def calculator(expression: str) -> int | float:
-    f"""
+    """
     Returns the value of a mathematical expression.
-    
-    Supports the following expressions: {MATH_EXPRESSIONS}
-    
+
     Args:
         expression (str): The mathematical expression to evaluate.
-        
+
     Returns:
         int | float: The result of the mathematical expression.
     """
