@@ -10,7 +10,7 @@ import pdfplumber
 from tqdm import tqdm
 from pdfplumber.utils import extract_text
 
-from bot_does_things.pdf_reading.surya_images import (
+from bot_does_things.tools.pdf_reading.surya_images import (
     extract_figures_and_exclusion_bboxes,
 )
 
