@@ -107,6 +107,7 @@ def extract_figures_and_exclusion_bboxes(
     dpi: int,
     pages_with_images: set[int],
     figure_legend_re: Any,
+    page_range: tuple[int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[int, list[BBox]]]:
     """Extract figures as PNG and return bboxes to exclude from pdfplumber text.
 
@@ -120,6 +121,7 @@ def extract_figures_and_exclusion_bboxes(
       dpi: Rasterization DPI for Surya.
       pages_with_images: Candidate page numbers to process.
       figure_legend_re: Compiled regex to detect figure legends.
+      page_range: Optional range of pages to process.
 
     Returns:
       A tuple of:
@@ -161,6 +163,9 @@ def extract_figures_and_exclusion_bboxes(
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         for page_number in sorted(caption_indices_by_page.keys()):
+            if page_range:
+                if page_number < page_range[0] or page_number > page_range[1]:
+                    continue
             page = pdf.pages[page_number - 1]
             page_w = float(getattr(page, "width", 0.0) or 0.0)
             page_h = float(getattr(page, "height", 0.0) or 0.0)
