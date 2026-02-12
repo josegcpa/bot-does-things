@@ -1093,6 +1093,7 @@ def extract_pdf(
     extract_tables: bool = True,
     split_titles: bool = True,
     surya_dpi: int = 96,
+    page_range: tuple[int, int] | None = None,
 ) -> str:
     """
     Extract elements from a PDF file. The structure of the output is as follows:
@@ -1149,6 +1150,7 @@ def extract_pdf(
         dpi=int(surya_dpi),
         pages_with_images=set(_pages_with_images(elements_first)),
         figure_legend_re=FIGURE_LEGEND_RE,
+        page_range=page_range,
     )
 
     # Second pass: exclude text inside detected figure/caption regions.
@@ -1213,6 +1215,13 @@ def main():
         type=int,
         default=int(THRESHOLDS["figures"]["dpi"]),
         help="DPI used to rasterize PDF pages for Surya layout",
+    )
+    parser.add_argument(
+        "--page_range",
+        type=int,
+        default=None,
+        help="Range of pages to process",
+        nargs=2,
     )
     args = parser.parse_args()
 
