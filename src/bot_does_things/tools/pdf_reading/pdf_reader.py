@@ -32,6 +32,12 @@ THRESHOLDS = {
     "line_grouping": {
         "top_tolerance": 2.0,
     },
+    "columns": {
+        "min_chars": 120,
+        "min_band_gap": 12.0,
+        "band_gap_multiplier": 3.0,
+        "gutter_margin_frac": 0.02,
+    },
     "title": {
         "max_width_to_median": 0.92,
     },
@@ -554,6 +560,16 @@ def _classify_titles_and_merge(
             "narrow_bonus": max(0.0, 1.0 - width_to_median),
         }
 
+    def style_signature(
+        style: dict[str, Any]
+    ) -> tuple[float, bool, bool, bool]:
+        return (
+            round(float(style.get("size", 0.0)), 2),
+            bool(style.get("bold")),
+            bool(style.get("italic")),
+            bool(style.get("underline")),
+        )
+
     # Compute title candidate + scoring quantities for every extracted line.
     for el in text_like:
         compute_title_fields(el)
@@ -576,6 +592,7 @@ def _classify_titles_and_merge(
         # Promote to Title and merge subsequent identically styled lines.
         title_lines = [(el.get("text") or "").strip()]
         el["type"] = "Title"
+        base_signature = style_signature(style)
 
         j = i + 1
         while j < len(elements):
@@ -585,7 +602,7 @@ def _classify_titles_and_merge(
             ):
                 break
             nxt_style = nxt["metadata"]["_style"]
-            if nxt_style != style:
+            if style_signature(nxt_style) != base_signature:
                 break
             t = (nxt.get("text") or "").strip()
             if not t:
@@ -694,384 +711,597 @@ def _classify_table_legends(
     return elements
 
 
-def extract_elements(
-    input_path: Path,
-    extract_tables: bool,
-    split_titles: bool,
-    exclude_bboxes_by_page: dict[int, list[BBox]] | None = None,
-) -> list[dict[str, Any]]:
-    elements: list[dict[str, Any]] = []
-    idx = 0
+def _detect_column_gutters(
+    chars: list[dict[str, Any]],
+    page_width: float,
+) -> list[float]:
+    if not chars or page_width <= 1.0:
+        return []
 
-    def _detect_column_gutters(
-        chars: list[dict[str, Any]],
-        page_width: float,
-    ) -> list[float]:
-        if not chars or page_width <= 1.0:
-            return []
+    xs: list[float] = []
+    for ch in chars:
+        x0 = ch.get("x0")
+        x1 = ch.get("x1")
+        if x0 is None or x1 is None:
+            continue
+        xs.append(0.5 * (float(x0) + float(x1)))
+    min_chars = int(THRESHOLDS["columns"]["min_chars"])
+    if len(xs) < min_chars:
+        return []
 
-        xs: list[float] = []
-        for ch in chars:
-            x0 = ch.get("x0")
-            x1 = ch.get("x1")
-            if x0 is None or x1 is None:
-                continue
-            xs.append(0.5 * (float(x0) + float(x1)))
-        if len(xs) < 200:
-            return []
+    bins = 120
+    hist, edges = np.histogram(xs, bins=bins, range=(0.0, float(page_width)))
+    window = 7
+    kernel = np.ones(window, dtype=float) / float(window)
+    smooth = np.convolve(hist.astype(float), kernel, mode="same")
 
-        bins = 120
-        hist, edges = np.histogram(
-            xs, bins=bins, range=(0.0, float(page_width))
-        )
-        window = 7
-        kernel = np.ones(window, dtype=float) / float(window)
-        smooth = np.convolve(hist.astype(float), kernel, mode="same")
+    positive = smooth[smooth > 0]
+    if positive.size == 0:
+        return []
 
-        positive = smooth[smooth > 0]
-        if positive.size == 0:
-            return []
+    low_thr = float(np.percentile(positive, 10))
+    low = smooth <= low_thr
 
-        low_thr = float(np.percentile(positive, 10))
-        low = smooth <= low_thr
+    min_x = 0.08 * float(page_width)
+    max_x = 0.92 * float(page_width)
 
-        min_x = 0.08 * float(page_width)
-        max_x = 0.92 * float(page_width)
+    gutters: list[tuple[int, int]] = []
+    start: int | None = None
+    for i, is_low in enumerate(low.tolist()):
+        if is_low and start is None:
+            start = i
+            continue
+        if (not is_low) and start is not None:
+            gutters.append((start, i - 1))
+            start = None
+    if start is not None:
+        gutters.append((start, bins - 1))
 
-        gutters: list[tuple[int, int]] = []
-        start: int | None = None
-        for i, is_low in enumerate(low.tolist()):
-            if is_low and start is None:
-                start = i
-                continue
-            if (not is_low) and start is not None:
-                gutters.append((start, i - 1))
-                start = None
-        if start is not None:
-            gutters.append((start, bins - 1))
+    centers: list[float] = []
+    for a, b in gutters:
+        if (b - a + 1) < 3:
+            continue
+        x0 = float(edges[a])
+        x1 = float(edges[b + 1])
+        cx = 0.5 * (x0 + x1)
+        if cx < min_x or cx > max_x:
+            continue
+        centers.append(cx)
 
-        centers: list[float] = []
-        for a, b in gutters:
-            if (b - a + 1) < 3:
-                continue
-            x0 = float(edges[a])
-            x1 = float(edges[b + 1])
-            cx = 0.5 * (x0 + x1)
-            if cx < min_x or cx > max_x:
-                continue
-            centers.append(cx)
-
-        centers = sorted(centers)
-        merged: list[float] = []
-        for c in centers:
-            if not merged:
-                merged.append(c)
-                continue
-            if abs(c - merged[-1]) <= 0.06 * float(page_width):
-                merged[-1] = 0.5 * (merged[-1] + c)
-                continue
+    centers = sorted(centers)
+    merged: list[float] = []
+    for c in centers:
+        if not merged:
             merged.append(c)
+            continue
+        if abs(c - merged[-1]) <= 0.06 * float(page_width):
+            merged[-1] = 0.5 * (merged[-1] + c)
+            continue
+        merged.append(c)
 
-        return merged
+    return merged
 
-    def _column_ranges_from_gutters(
-        gutters: list[float],
-        page_width: float,
-    ) -> list[tuple[float, float]]:
-        if not gutters:
-            return [(0.0, float(page_width))]
-        cuts = [0.0] + sorted([float(g) for g in gutters]) + [float(page_width)]
-        ranges: list[tuple[float, float]] = []
-        for i in range(len(cuts) - 1):
-            ranges.append((cuts[i], cuts[i + 1]))
-        return ranges
 
-    def _pick_column_ranges(
-        chars: list[dict[str, Any]],
-        page_width: float,
-    ) -> list[tuple[float, float]]:
-        gutters = _detect_column_gutters(chars, page_width)
-        if not gutters:
-            return [(0.0, float(page_width))]
+def _column_ranges_from_gutters(
+    gutters: list[float],
+    page_width: float,
+) -> list[tuple[float, float]]:
+    if not gutters:
+        return [(0.0, float(page_width))]
+    cuts = [0.0] + sorted([float(g) for g in gutters]) + [float(page_width)]
+    ranges: list[tuple[float, float]] = []
+    for i in range(len(cuts) - 1):
+        ranges.append((cuts[i], cuts[i + 1]))
+    return ranges
 
-        xs: list[float] = []
-        for ch in chars:
-            x0 = ch.get("x0")
-            x1 = ch.get("x1")
-            if x0 is None or x1 is None:
-                continue
-            xs.append(0.5 * (float(x0) + float(x1)))
-        if not xs:
-            return [(0.0, float(page_width))]
 
-        def counts_for(guts: list[float]) -> list[int]:
-            ranges = _column_ranges_from_gutters(guts, page_width)
-            counts = [0 for _ in ranges]
-            for x in xs:
-                for i, (a, b) in enumerate(ranges):
-                    if (i == len(ranges) - 1 and a <= x <= b) or (a <= x < b):
-                        counts[i] += 1
-                        break
-            return counts
+def _pick_column_ranges(
+    chars: list[dict[str, Any]],
+    page_width: float,
+) -> list[tuple[float, float]]:
+    gutters = _detect_column_gutters(chars, page_width)
+    if not gutters:
+        return [(0.0, float(page_width))]
 
-        total = float(len(xs))
-        min_frac = 0.18
+    xs: list[float] = []
+    for ch in chars:
+        x0 = ch.get("x0")
+        x1 = ch.get("x1")
+        if x0 is None or x1 is None:
+            continue
+        xs.append(0.5 * (float(x0) + float(x1)))
+    if not xs:
+        return [(0.0, float(page_width))]
 
-        best = [(0.0, float(page_width))]
+    def counts_for(guts: list[float]) -> list[int]:
+        ranges = _column_ranges_from_gutters(guts, page_width)
+        counts = [0 for _ in ranges]
+        for x in xs:
+            for i, (a, b) in enumerate(ranges):
+                if (i == len(ranges) - 1 and a <= x <= b) or (a <= x < b):
+                    counts[i] += 1
+                    break
+        return counts
 
-        # Try 3 columns (2 gutters).
-        if len(gutters) >= 2:
-            candidate = [gutters[0], gutters[1]]
-            counts = counts_for(candidate)
-            if len(counts) == 3 and all(
-                (c / total) >= min_frac for c in counts
-            ):
-                return _column_ranges_from_gutters(candidate, page_width)
+    total = float(len(xs))
+    min_frac = 0.18
 
-        # Try 2 columns (1 gutter).
-        candidate = [gutters[0]]
+    best = [(0.0, float(page_width))]
+
+    # Try 3 columns (2 gutters).
+    if len(gutters) >= 2:
+        candidate = [gutters[0], gutters[1]]
         counts = counts_for(candidate)
-        if len(counts) == 2 and all((c / total) >= min_frac for c in counts):
-            best = _column_ranges_from_gutters(candidate, page_width)
+        if len(counts) == 3 and all((c / total) >= min_frac for c in counts):
+            return _column_ranges_from_gutters(candidate, page_width)
 
-        return best
+    # Try 2 columns (1 gutter).
+    candidate = [gutters[0]]
+    counts = counts_for(candidate)
+    if len(counts) == 2 and all((c / total) >= min_frac for c in counts):
+        best = _column_ranges_from_gutters(candidate, page_width)
 
-    def build_lines_from_chars(
-        chars: list[dict[str, Any]],
-        page_number: int,
-        page: Any,
-    ) -> list[dict[str, Any]]:
-        if not chars:
-            return []
+    return best
 
-        # Group chars into lines by their "top" coordinate.
-        sorted_chars = sorted(
-            chars, key=lambda c: (c.get("top", 0.0), c.get("x0", 0.0))
-        )
-        lines: list[dict[str, Any]] = []
-        line_chars: list[dict[str, Any]] = []
-        current_top: float | None = None
-        tolerance = THRESHOLDS["line_grouping"]["top_tolerance"]
 
-        def flush_line() -> None:
-            nonlocal line_chars
-            nonlocal current_top
-            if not line_chars or current_top is None:
-                line_chars = []
-                current_top = None
-                return
+def _split_char_bands(
+    chars: list[dict[str, Any]],
+) -> list[tuple[float, float, list[dict[str, Any]]]]:
+    valid = [ch for ch in chars if ch.get("top") is not None]
+    if not valid:
+        return []
 
-            text = extract_text(line_chars) or ""
-            text = _normalize_heading(text)
-            if text:
-                sizes = [
-                    c.get("size")
-                    for c in line_chars
-                    if c.get("size") is not None
-                ]
-                size = float(max(sizes) if sizes else 0.0)
-                bold = any(_is_bold_font(c.get("fontname")) for c in line_chars)
-                italic = any(
-                    _is_italic_font(c.get("fontname")) for c in line_chars
-                )
-                x0s = [
-                    c.get("x0") for c in line_chars if c.get("x0") is not None
-                ]
-                x1s = [
-                    c.get("x1") for c in line_chars if c.get("x1") is not None
-                ]
-                tops = [
-                    c.get("top") for c in line_chars if c.get("top") is not None
-                ]
-                bottoms = [
-                    c.get("bottom")
-                    for c in line_chars
-                    if c.get("bottom") is not None
-                ]
-                x0 = float(min(x0s)) if x0s else 0.0
-                x1 = (
-                    float(max(x1s))
-                    if x1s
-                    else float(getattr(page, "width", 1.0))
-                )
-                top = float(min(tops)) if tops else float(current_top)
-                bottom = float(max(bottoms)) if bottoms else top
-                line_width = float(x1 - x0)
-                line_height = float(bottom - top)
-                underline = _is_underlined(page, x0=x0, x1=x1, bottom=bottom)
-                page_height = float(getattr(page, "height", 0.0) or 0.0)
+    tops = sorted(float(ch["top"]) for ch in valid)
+    if len(tops) < 2:
+        return [(tops[0], tops[-1], valid)]
 
-                lines.append(
-                    {
-                        "type": "Text",
-                        "text": text,
-                        "metadata": {
-                            "page_number": page_number,
-                            "_style": {
-                                "size": size,
-                                "bold": bool(bold),
-                                "italic": bool(italic),
-                                "underline": bool(underline),
-                                "line_width": line_width,
-                                "line_height": line_height,
-                                "x0": float(x0),
-                                "x1": float(x1),
-                                "top": float(top),
-                                "bottom": float(bottom),
-                                "page_height": page_height,
-                            },
-                        },
-                        "page_number": page_number,
-                        "_y": float(top),
-                    }
-                )
+    gaps = [b - a for a, b in zip(tops, tops[1:]) if b > a]
+    if not gaps:
+        return [(tops[0], tops[-1], valid)]
+
+    median_gap = float(np.median(gaps))
+    min_band_gap = float(THRESHOLDS["columns"]["min_band_gap"])
+    gap_multiplier = float(THRESHOLDS["columns"]["band_gap_multiplier"])
+    gap_threshold = max(min_band_gap, median_gap * gap_multiplier)
+
+    boundaries: list[float] = []
+    for a, b in zip(tops, tops[1:]):
+        if (b - a) > gap_threshold:
+            boundaries.append(0.5 * (a + b))
+
+    if not boundaries:
+        return [(tops[0], tops[-1], valid)]
+
+    ranges: list[tuple[float, float]] = []
+    start = tops[0]
+    for bound in boundaries:
+        ranges.append((start, bound))
+        start = bound
+    ranges.append((start, tops[-1] + 1e-3))
+
+    bands: list[tuple[float, float, list[dict[str, Any]]]] = []
+    for start, end in ranges:
+        band_chars = [ch for ch in valid if start <= float(ch["top"]) <= end]
+        if not band_chars:
+            continue
+        bands.append((start, end, band_chars))
+    return bands
+
+
+def _column_gutters(col_ranges: list[tuple[float, float]]) -> list[float]:
+    if len(col_ranges) <= 1:
+        return []
+    return [float(col_ranges[i][1]) for i in range(len(col_ranges) - 1)]
+
+
+def _line_spans_gutter(
+    line: dict[str, Any],
+    gutters: list[float],
+    margin: float,
+) -> bool:
+    if not gutters:
+        return False
+    x0 = float(line.get("x0", 0.0))
+    x1 = float(line.get("x1", 0.0))
+    return any(x0 <= g - margin and x1 >= g + margin for g in gutters)
+
+
+def _bbox_spans_gutter(
+    bbox: BBox,
+    gutters: list[float],
+    margin: float,
+) -> bool:
+    if not gutters:
+        return False
+    x0, _, x1, _ = bbox
+    return any(x0 <= g - margin and x1 >= g + margin for g in gutters)
+
+
+def _assign_line_to_column(
+    line: dict[str, Any],
+    col_ranges: list[tuple[float, float]],
+) -> int:
+    x0 = float(line.get("x0", 0.0))
+    x1 = float(line.get("x1", 0.0))
+    cx = 0.5 * (x0 + x1)
+    for i, (a, b) in enumerate(col_ranges):
+        if (i == len(col_ranges) - 1 and a <= cx <= b) or (a <= cx < b):
+            return i
+    return 0
+
+
+def _line_records_from_chars(
+    chars: list[dict[str, Any]],
+    page_number: int,
+    page: Any,
+) -> list[dict[str, Any]]:
+    if not chars:
+        return []
+
+    # Group chars into lines by their "top" coordinate.
+    sorted_chars = sorted(
+        chars, key=lambda c: (c.get("top", 0.0), c.get("x0", 0.0))
+    )
+    lines: list[dict[str, Any]] = []
+    line_chars: list[dict[str, Any]] = []
+    current_top: float | None = None
+    tolerance = THRESHOLDS["line_grouping"]["top_tolerance"]
+
+    def flush_line() -> None:
+        nonlocal line_chars
+        nonlocal current_top
+        if not line_chars or current_top is None:
             line_chars = []
             current_top = None
+            return
 
-        for ch in sorted_chars:
-            top = ch.get("top")
-            if top is None:
-                continue
-            if current_top is None:
-                current_top = float(top)
-                line_chars = [ch]
-                continue
+        text = extract_text(line_chars) or ""
+        text = _normalize_heading(text)
+        if text:
+            sizes = [
+                c.get("size") for c in line_chars if c.get("size") is not None
+            ]
+            size = float(max(sizes) if sizes else 0.0)
+            bold = any(_is_bold_font(c.get("fontname")) for c in line_chars)
+            italic = any(_is_italic_font(c.get("fontname")) for c in line_chars)
+            x0s = [c.get("x0") for c in line_chars if c.get("x0") is not None]
+            x1s = [c.get("x1") for c in line_chars if c.get("x1") is not None]
+            tops = [
+                c.get("top") for c in line_chars if c.get("top") is not None
+            ]
+            bottoms = [
+                c.get("bottom")
+                for c in line_chars
+                if c.get("bottom") is not None
+            ]
+            x0 = float(min(x0s)) if x0s else 0.0
+            x1 = float(max(x1s)) if x1s else float(getattr(page, "width", 1.0))
+            top = float(min(tops)) if tops else float(current_top)
+            bottom = float(max(bottoms)) if bottoms else top
+            line_width = float(x1 - x0)
+            line_height = float(bottom - top)
+            underline = _is_underlined(page, x0=x0, x1=x1, bottom=bottom)
+            page_height = float(getattr(page, "height", 0.0) or 0.0)
 
-            if abs(float(top) - float(current_top)) <= tolerance:
-                line_chars.append(ch)
-                continue
+            lines.append(
+                {
+                    "text": text,
+                    "x0": float(x0),
+                    "x1": float(x1),
+                    "top": float(top),
+                    "bottom": float(bottom),
+                    "line_width": line_width,
+                    "line_height": line_height,
+                    "size": size,
+                    "bold": bool(bold),
+                    "italic": bool(italic),
+                    "underline": bool(underline),
+                    "page_height": page_height,
+                }
+            )
+        line_chars = []
+        current_top = None
 
-            flush_line()
+    for ch in sorted_chars:
+        top = ch.get("top")
+        if top is None:
+            continue
+        if current_top is None:
             current_top = float(top)
             line_chars = [ch]
+            continue
+
+        if abs(float(top) - float(current_top)) <= tolerance:
+            line_chars.append(ch)
+            continue
 
         flush_line()
-        return lines
+        current_top = float(top)
+        line_chars = [ch]
 
-    with pdfplumber.open(str(input_path)) as pdf:
-        for page_index, page in tqdm(enumerate(pdf.pages, start=1)):
-            page_width = float(getattr(page, "width", 0.0) or 0.0)
-            page_items: list[dict[str, Any]] = []
+    flush_line()
+    return lines
 
-            # Detect tables with bboxes so we can (a) exclude their text and (b) insert the
-            # Table element at the correct position in the reading order.
-            table_bboxes: list[BBox] = []
-            page_tables = []
-            if extract_tables:
-                try:
-                    page_tables = page.find_tables() or []
-                except Exception:
-                    page_tables = []
-                for t in page_tables:
-                    if getattr(t, "bbox", None):
-                        table_bboxes.append(t.bbox)
 
-            filtered_chars: list[dict[str, Any]] = []
-            if getattr(page, "chars", None):
-                excluded_bboxes = (exclude_bboxes_by_page or {}).get(
-                    page_index, []
-                )
-                for ch in page.chars:
-                    if table_bboxes and any(
-                        _char_in_bbox(ch, bbox) for bbox in table_bboxes
-                    ):
-                        continue
-                    if excluded_bboxes and any(
-                        _char_in_bbox(ch, bbox) for bbox in excluded_bboxes
-                    ):
-                        continue
-                    filtered_chars.append(ch)
+def _line_record_to_element(
+    record: dict[str, Any],
+    page_number: int,
+) -> dict[str, Any]:
+    return {
+        "type": "Text",
+        "text": record["text"],
+        "metadata": {
+            "page_number": page_number,
+            "_style": {
+                "size": float(record.get("size", 0.0)),
+                "bold": bool(record.get("bold")),
+                "italic": bool(record.get("italic")),
+                "underline": bool(record.get("underline")),
+                "line_width": float(record.get("line_width", 0.0)),
+                "line_height": float(record.get("line_height", 0.0)),
+                "x0": float(record.get("x0", 0.0)),
+                "x1": float(record.get("x1", 0.0)),
+                "top": float(record.get("top", 0.0)),
+                "bottom": float(record.get("bottom", 0.0)),
+                "page_height": float(record.get("page_height", 0.0)),
+            },
+        },
+        "page_number": page_number,
+        "_y": float(record.get("top", 0.0)),
+    }
 
-            col_ranges = _pick_column_ranges(filtered_chars, page_width)
-            col_chars: list[list[dict[str, Any]]] = [[] for _ in col_ranges]
-            for ch in filtered_chars:
-                x0 = ch.get("x0")
-                x1 = ch.get("x1")
-                if x0 is None or x1 is None:
+
+def _sort_items_by_y(item: dict[str, Any]) -> tuple[float, int]:
+    y = float(item.get("_y", 0.0))
+    type_rank = 1 if item.get("type") == "Table" else 0
+    return (y, type_rank)
+
+
+def _table_element_from_table(
+    table: Any,
+    page_number: int,
+) -> dict[str, Any] | None:
+    bbox = getattr(table, "bbox", None)
+    if not bbox:
+        return None
+    try:
+        table_data = table.extract()
+    except Exception:
+        table_data = None
+    return {
+        "type": "Table",
+        "text": None,
+        "metadata": {
+            "page_number": page_number,
+            "table": table_data,
+            "bbox": list(bbox),
+        },
+        "page_number": page_number,
+        "_y": float(bbox[1]),
+    }
+
+
+def _collect_page_tables(
+    page: Any,
+    extract_tables: bool,
+) -> tuple[list[Any], list[BBox]]:
+    if not extract_tables:
+        return [], []
+    try:
+        page_tables = page.find_tables() or []
+    except Exception:
+        page_tables = []
+    table_bboxes = [t.bbox for t in page_tables if getattr(t, "bbox", None)]
+    return page_tables, table_bboxes
+
+
+def _filter_page_chars(
+    page: Any,
+    table_bboxes: list[BBox],
+    excluded_bboxes: list[BBox],
+) -> list[dict[str, Any]]:
+    filtered_chars: list[dict[str, Any]] = []
+    if not getattr(page, "chars", None):
+        return filtered_chars
+    for ch in page.chars:
+        if table_bboxes and any(
+            _char_in_bbox(ch, bbox) for bbox in table_bboxes
+        ):
+            continue
+        if excluded_bboxes and any(
+            _char_in_bbox(ch, bbox) for bbox in excluded_bboxes
+        ):
+            continue
+        filtered_chars.append(ch)
+    return filtered_chars
+
+
+def _build_split_title_items(
+    filtered_chars: list[dict[str, Any]],
+    page_tables: list[Any],
+    page_index: int,
+    page: Any,
+    page_width: float,
+) -> list[dict[str, Any]]:
+    page_height = float(getattr(page, "height", 0.0) or 0.0)
+    bands = _split_char_bands(filtered_chars)
+    if not bands:
+        bands = [(0.0, page_height, filtered_chars)]
+
+    gutter_margin = float(page_width) * float(
+        THRESHOLDS["columns"]["gutter_margin_frac"]
+    )
+    page_items: list[dict[str, Any]] = []
+
+    for band_start, band_end, band_chars in bands:
+        col_ranges = _pick_column_ranges(band_chars, page_width)
+        gutters = _column_gutters(col_ranges)
+        col_items_by_idx: list[list[dict[str, Any]]] = [[] for _ in col_ranges]
+        full_width_items: list[dict[str, Any]] = []
+
+        for record in _line_records_from_chars(band_chars, page_index, page):
+            element = _line_record_to_element(record, page_index)
+            if _line_spans_gutter(record, gutters, gutter_margin):
+                full_width_items.append(element)
+            else:
+                col_idx = _assign_line_to_column(record, col_ranges)
+                col_items_by_idx[col_idx].append(element)
+
+        if page_tables:
+            for t in page_tables:
+                bbox = getattr(t, "bbox", None)
+                if not bbox:
                     continue
-                cx = 0.5 * (float(x0) + float(x1))
-                for i, (a, b) in enumerate(col_ranges):
-                    if (i == len(col_ranges) - 1 and a <= cx <= b) or (
-                        a <= cx < b
-                    ):
-                        col_chars[i].append(ch)
-                        break
-
-            col_tables: list[list[dict[str, Any]]] = [[] for _ in col_ranges]
-            if extract_tables:
-                for t in page_tables:
-                    bbox = getattr(t, "bbox", None)
-                    if not bbox:
-                        continue
+                cy = 0.5 * (float(bbox[1]) + float(bbox[3]))
+                if not (band_start <= cy <= band_end):
+                    continue
+                table_el = _table_element_from_table(t, page_index)
+                if table_el is None:
+                    continue
+                if _bbox_spans_gutter(bbox, gutters, gutter_margin):
+                    full_width_items.append(table_el)
+                else:
                     cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
                     placed = False
                     for i, (a, b) in enumerate(col_ranges):
                         if (i == len(col_ranges) - 1 and a <= cx <= b) or (
                             a <= cx < b
                         ):
-                            col_tables[i].append(t)
+                            col_items_by_idx[i].append(table_el)
                             placed = True
                             break
                     if not placed:
-                        col_tables[0].append(t)
+                        col_items_by_idx[0].append(table_el)
 
-            for col_idx, _ in enumerate(col_ranges):
-                col_items: list[dict[str, Any]] = []
+        for col_items in col_items_by_idx:
+            col_items.sort(key=_sort_items_by_y)
+        full_width_items.sort(key=_sort_items_by_y)
 
-                if split_titles:
-                    col_items.extend(
-                        build_lines_from_chars(
-                            col_chars[col_idx], page_index, page
-                        )
-                    )
-                else:
-                    page_text = extract_text(col_chars[col_idx]) or ""
-                    clean_text = "\n".join(
-                        [l for l in page_text.splitlines() if l.strip()]
-                    ).strip()
-                    if clean_text:
-                        col_items.append(
-                            {
-                                "type": "Text",
-                                "text": clean_text,
-                                "metadata": {"page_number": page_index},
-                                "page_number": page_index,
-                                "_y": 0.0,
-                            }
-                        )
+        col_positions = [0 for _ in col_items_by_idx]
+        for full_item in full_width_items:
+            full_y = float(full_item.get("_y", 0.0))
+            for col_idx, col_items in enumerate(col_items_by_idx):
+                while (
+                    col_positions[col_idx] < len(col_items)
+                    and float(col_items[col_positions[col_idx]].get("_y", 0.0))
+                    <= full_y
+                ):
+                    page_items.append(col_items[col_positions[col_idx]])
+                    col_positions[col_idx] += 1
+            page_items.append(full_item)
 
-                if extract_tables:
-                    for t in col_tables[col_idx]:
-                        bbox = getattr(t, "bbox", None)
-                        if not bbox:
-                            continue
-                        try:
-                            table_data = t.extract()
-                        except Exception:
-                            table_data = None
+        for col_idx, col_items in enumerate(col_items_by_idx):
+            while col_positions[col_idx] < len(col_items):
+                page_items.append(col_items[col_positions[col_idx]])
+                col_positions[col_idx] += 1
 
-                        col_items.append(
-                            {
-                                "type": "Table",
-                                "text": None,
-                                "metadata": {
-                                    "page_number": page_index,
-                                    "table": table_data,
-                                    "bbox": list(bbox),
-                                },
-                                "page_number": page_index,
-                                "_y": float(bbox[1]),
-                            }
-                        )
+    return page_items
 
-                # Stable ordering within column: sort by y; if equal, keep text before tables.
-                def sort_key(item: dict[str, Any]) -> tuple[float, int]:
-                    y = float(item.get("_y", 0.0))
-                    type_rank = 1 if item.get("type") == "Table" else 0
-                    return (y, type_rank)
 
-                col_items.sort(key=sort_key)
-                page_items.extend(col_items)
+def _build_unsplit_items(
+    filtered_chars: list[dict[str, Any]],
+    page_tables: list[Any],
+    page_index: int,
+    page_width: float,
+) -> list[dict[str, Any]]:
+    col_ranges = _pick_column_ranges(filtered_chars, page_width)
+    col_chars: list[list[dict[str, Any]]] = [[] for _ in col_ranges]
+    for ch in filtered_chars:
+        x0 = ch.get("x0")
+        x1 = ch.get("x1")
+        if x0 is None or x1 is None:
+            continue
+        cx = 0.5 * (float(x0) + float(x1))
+        for i, (a, b) in enumerate(col_ranges):
+            if (i == len(col_ranges) - 1 and a <= cx <= b) or (a <= cx < b):
+                col_chars[i].append(ch)
+                break
+
+    col_tables: list[list[Any]] = [[] for _ in col_ranges]
+    for t in page_tables:
+        bbox = getattr(t, "bbox", None)
+        if not bbox:
+            continue
+        cx = 0.5 * (float(bbox[0]) + float(bbox[2]))
+        placed = False
+        for i, (a, b) in enumerate(col_ranges):
+            if (i == len(col_ranges) - 1 and a <= cx <= b) or (a <= cx < b):
+                col_tables[i].append(t)
+                placed = True
+                break
+        if not placed:
+            col_tables[0].append(t)
+
+    page_items: list[dict[str, Any]] = []
+    for col_idx, _ in enumerate(col_ranges):
+        col_items: list[dict[str, Any]] = []
+        page_text = extract_text(col_chars[col_idx]) or ""
+        clean_text = "\n".join(
+            [line for line in page_text.splitlines() if line.strip()]
+        ).strip()
+        if clean_text:
+            col_items.append(
+                {
+                    "type": "Text",
+                    "text": clean_text,
+                    "metadata": {"page_number": page_index},
+                    "page_number": page_index,
+                    "_y": 0.0,
+                }
+            )
+
+        for t in col_tables[col_idx]:
+            table_el = _table_element_from_table(t, page_index)
+            if table_el is None:
+                continue
+            col_items.append(table_el)
+
+        col_items.sort(key=_sort_items_by_y)
+        page_items.extend(col_items)
+
+    return page_items
+
+
+def extract_elements(
+    input_path: Path,
+    extract_tables: bool,
+    split_titles: bool,
+    exclude_bboxes_by_page: dict[int, list[BBox]] | None = None,
+    page_range: tuple[int, int] | None = None,
+) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    idx = 0
+
+    with pdfplumber.open(str(input_path)) as pdf:
+        for page_index, page in tqdm(enumerate(pdf.pages, start=1)):
+            if page_range:
+                if page_index < page_range[0] or page_index > page_range[1]:
+                    continue
+            page_width = float(getattr(page, "width", 0.0) or 0.0)
+            page_tables, table_bboxes = _collect_page_tables(
+                page, extract_tables
+            )
+            excluded_bboxes = (exclude_bboxes_by_page or {}).get(page_index, [])
+            filtered_chars = _filter_page_chars(
+                page, table_bboxes, excluded_bboxes
+            )
+
+            if split_titles:
+                page_items = _build_split_title_items(
+                    filtered_chars=filtered_chars,
+                    page_tables=page_tables,
+                    page_index=page_index,
+                    page=page,
+                    page_width=page_width,
+                )
+            else:
+                page_items = _build_unsplit_items(
+                    filtered_chars=filtered_chars,
+                    page_tables=page_tables,
+                    page_index=page_index,
+                    page_width=page_width,
+                )
+
             for item in page_items:
                 item.pop("_y", None)
                 item["index"] = idx
@@ -1140,6 +1370,7 @@ def extract_pdf(
         input_path=input_path,
         extract_tables=extract_tables,
         split_titles=split_titles,
+        page_range=page_range,
     )
 
     figures_dir = output_dir / "figures"
@@ -1159,6 +1390,7 @@ def extract_pdf(
         extract_tables=extract_tables,
         split_titles=split_titles,
         exclude_bboxes_by_page=exclude_bboxes_by_page,
+        page_range=page_range,
     )
 
     line_height_stats = _line_height_stats(elements)
