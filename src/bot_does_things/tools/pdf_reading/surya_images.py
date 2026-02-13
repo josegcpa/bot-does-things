@@ -252,6 +252,9 @@ def extract_figures_and_exclusion_bboxes(
                 )
                 figure_regions_pdf.append(pdf_bbox)
 
+            if not figure_regions_pdf:
+                continue
+
             for cap_idx in caption_indices_by_page.get(page_number, []):
                 caption_text, used_indices = _merge_caption_lines(
                     elements, cap_idx, figure_legend_re
