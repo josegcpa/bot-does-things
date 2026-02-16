@@ -13,7 +13,9 @@ from pdfplumber.utils import extract_text
 from bot_does_things.tools.pdf_reading.surya_images import (
     extract_figures_and_exclusion_bboxes,
 )
+from bot_does_things.logger import get_logger
 
+logger = get_logger(__name__)
 
 BBox = tuple[float, float, float, float]
 
@@ -64,6 +66,7 @@ FIGURE_LEGEND_RE = re.compile(
 
 
 def _pages_with_images(elements: list[dict[str, Any]]) -> list[int]:
+    logger.debug("Finding pages with images")
     pages: set[int] = set()
     for el in elements:
         page = el.get("page_number")
@@ -78,10 +81,12 @@ def _pages_with_images(elements: list[dict[str, Any]]) -> list[int]:
 
 
 def _normalize_heading(text: str) -> str:
+    logger.debug("Normalizing heading text")
     return " ".join(text.strip().split())
 
 
 def _maybe_title_line(line: str) -> bool:
+    logger.debug("Checking if line is a title candidate")
     line = line.strip()
     if not line:
         return False
@@ -111,6 +116,7 @@ def _maybe_title_line(line: str) -> bool:
 
 
 def _line_height_stats(elements: list[dict[str, Any]]) -> dict[str, Any]:
+    logger.debug("Calculating line height statistics")
     heights: list[float] = []
     for el in elements:
         md = el.get("metadata")
@@ -138,6 +144,7 @@ def _line_height_stats(elements: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _normalize_repeated_text(text: str) -> str:
+    logger.debug("Normalizing repeated text")
     text = " ".join(text.strip().split()).lower()
     text = re.sub(r"\d+", "<num>", text)
     return text
@@ -146,6 +153,7 @@ def _normalize_repeated_text(text: str) -> str:
 def _classify_headers_footers(
     elements: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    logger.debug("Classifying headers and footers")
     if not elements:
         return elements, {
             "pages": 0,
@@ -294,6 +302,7 @@ def _classify_headers_footers(
 def _merge_tables_across_pages(
     elements: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    logger.debug("Merging tables across pages")
     if not elements:
         return elements, {"merged_tables": 0}
 
@@ -392,6 +401,7 @@ def _merge_tables_across_pages(
 
 
 def _char_in_bbox(char: dict[str, Any], bbox: BBox) -> bool:
+    logger.debug("Checking if character is in bounding box")
     x0, top, x1, bottom = bbox
     cx0 = char.get("x0")
     cx1 = char.get("x1")
@@ -403,12 +413,14 @@ def _char_in_bbox(char: dict[str, Any], bbox: BBox) -> bool:
 
 
 def _is_bold_font(fontname: str | None) -> bool:
+    logger.debug("Checking if font is bold")
     if not fontname:
         return False
     return "bold" in fontname.lower()
 
 
 def _is_italic_font(fontname: str | None) -> bool:
+    logger.debug("Checking if font is italic")
     if not fontname:
         return False
     name = fontname.lower()
@@ -421,6 +433,7 @@ def _is_underlined(
     x1: float,
     bottom: float,
 ) -> bool:
+    logger.debug("Checking if text is underlined")
     lines = getattr(page, "lines", None)
     if not lines:
         return False
@@ -455,6 +468,7 @@ def _is_underlined(
 def _classify_titles_and_merge(
     elements: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    logger.debug("Classifying titles and merging")
     text_like = [
         el
         for el in elements
@@ -624,6 +638,7 @@ def _classify_titles_and_merge(
 def _classify_table_legends(
     elements: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
+    logger.debug("Classifying table legends")
     if not elements:
         return elements
 
@@ -707,6 +722,7 @@ def _detect_column_gutters(
     chars: list[dict[str, Any]],
     page_width: float,
 ) -> list[float]:
+    logger.debug("Detecting column gutters")
     if not chars or page_width <= 1.0:
         return []
 
@@ -778,6 +794,7 @@ def _column_ranges_from_gutters(
     gutters: list[float],
     page_width: float,
 ) -> list[tuple[float, float]]:
+    logger.debug("Creating column ranges from gutters")
     if not gutters:
         return [(0.0, float(page_width))]
     cuts = [0.0] + sorted([float(g) for g in gutters]) + [float(page_width)]
@@ -791,6 +808,7 @@ def _pick_column_ranges(
     chars: list[dict[str, Any]],
     page_width: float,
 ) -> list[tuple[float, float]]:
+    logger.debug("Picking optimal column ranges")
     gutters = _detect_column_gutters(chars, page_width)
     if not gutters:
         return [(0.0, float(page_width))]
@@ -839,6 +857,7 @@ def _pick_column_ranges(
 def _split_char_bands(
     chars: list[dict[str, Any]],
 ) -> list[tuple[float, float, list[dict[str, Any]]]]:
+    logger.debug("Splitting characters into bands")
     valid = [ch for ch in chars if ch.get("top") is not None]
     if not valid:
         return []
@@ -881,6 +900,7 @@ def _split_char_bands(
 
 
 def _column_gutters(col_ranges: list[tuple[float, float]]) -> list[float]:
+    logger.debug("Extracting column gutters from ranges")
     if len(col_ranges) <= 1:
         return []
     return [float(col_ranges[i][1]) for i in range(len(col_ranges) - 1)]
@@ -891,6 +911,7 @@ def _line_spans_gutter(
     gutters: list[float],
     margin: float,
 ) -> bool:
+    logger.debug("Checking if line spans gutter")
     if not gutters:
         return False
     x0 = float(line.get("x0", 0.0))
@@ -903,6 +924,7 @@ def _bbox_spans_gutter(
     gutters: list[float],
     margin: float,
 ) -> bool:
+    logger.debug("Checking if bbox spans gutter")
     if not gutters:
         return False
     x0, _, x1, _ = bbox
@@ -913,6 +935,7 @@ def _assign_line_to_column(
     line: dict[str, Any],
     col_ranges: list[tuple[float, float]],
 ) -> int:
+    logger.debug("Assigning line to column")
     x0 = float(line.get("x0", 0.0))
     x1 = float(line.get("x1", 0.0))
     cx = 0.5 * (x0 + x1)
@@ -927,6 +950,7 @@ def _line_records_from_chars(
     page_number: int,
     page: Any,
 ) -> list[dict[str, Any]]:
+    logger.debug("Creating line records from characters")
     if not chars:
         return []
 
@@ -1019,6 +1043,7 @@ def _line_record_to_element(
     record: dict[str, Any],
     page_number: int,
 ) -> dict[str, Any]:
+    logger.debug("Converting line record to element")
     return {
         "type": "Text",
         "text": record["text"],
@@ -1044,6 +1069,7 @@ def _line_record_to_element(
 
 
 def _sort_items_by_y(item: dict[str, Any]) -> tuple[float, int]:
+    logger.debug("Getting sort key for items")
     y = float(item.get("_y", 0.0))
     type_rank = 1 if item.get("type") == "Table" else 0
     return (y, type_rank)
@@ -1053,6 +1079,7 @@ def _table_element_from_table(
     table: Any,
     page_number: int,
 ) -> dict[str, Any] | None:
+    logger.debug("Creating element from table")
     bbox = getattr(table, "bbox", None)
     if not bbox:
         return None
@@ -1077,6 +1104,7 @@ def _collect_page_tables(
     page: Any,
     extract_tables: bool,
 ) -> tuple[list[Any], list[BBox]]:
+    logger.debug("Collecting tables from page")
     if not extract_tables:
         return [], []
     try:
@@ -1092,6 +1120,7 @@ def _filter_page_chars(
     table_bboxes: list[BBox],
     excluded_bboxes: list[BBox],
 ) -> list[dict[str, Any]]:
+    logger.debug("Filtering page characters")
     filtered_chars: list[dict[str, Any]] = []
     if not getattr(page, "chars", None):
         return filtered_chars
@@ -1115,6 +1144,7 @@ def _build_split_title_items(
     page: Any,
     page_width: float,
 ) -> list[dict[str, Any]]:
+    logger.debug("Building split title items")
     page_height = float(getattr(page, "height", 0.0) or 0.0)
     bands = _split_char_bands(filtered_chars)
     if not bands:
@@ -1196,6 +1226,7 @@ def _build_unsplit_items(
     page_index: int,
     page_width: float,
 ) -> list[dict[str, Any]]:
+    logger.debug("Building unsplit items")
     col_ranges = _pick_column_ranges(filtered_chars, page_width)
     col_chars: list[list[dict[str, Any]]] = [[] for _ in col_ranges]
     for ch in filtered_chars:
@@ -1261,11 +1292,17 @@ def extract_elements(
     exclude_bboxes_by_page: dict[int, list[BBox]] | None = None,
     page_range: tuple[int, int] | None = None,
 ) -> list[dict[str, Any]]:
+    logger.debug("Extracting elements from PDF")
+    logger.info("Extracting elements")
     elements: list[dict[str, Any]] = []
     idx = 0
 
     with pdfplumber.open(str(input_path)) as pdf:
-        for page_index, page in tqdm(enumerate(pdf.pages, start=1)):
+        for page_index, page in tqdm(
+            enumerate(pdf.pages, start=1),
+            desc="Extracting elements",
+            total=len(pdf.pages),
+        ):
             if page_range:
                 if page_index < page_range[0] or page_index > page_range[1]:
                     continue
@@ -1317,6 +1354,7 @@ def extract_pdf(
     surya_dpi: int = 96,
     page_range: tuple[int, int] | None = None,
 ) -> str:
+    logger.debug("Starting PDF extraction process")
     """
     Extract elements from a PDF file. The structure of the output is as follows:
 
@@ -1348,6 +1386,14 @@ def extract_pdf(
     Returns:
         str: Path to the output JSON file.
     """
+    logger.info("Extracting PDF")
+    logger.debug(f"Input path: {input_path}")
+    logger.debug(f"Output dir: {output_dir}")
+    logger.debug(f"Extract tables: {extract_tables}")
+    logger.debug(f"Split titles: {split_titles}")
+    logger.debug(f"Surya DPI: {surya_dpi}")
+    logger.debug(f"Page range: {page_range}")
+    logger.debug(f"Input path exists: {Path(input_path).exists()}")
     input_path = Path(input_path)
     if not input_path.exists():
         raise FileNotFoundError(str(input_path))
@@ -1415,6 +1461,7 @@ def extract_pdf(
 
 
 def main():
+    logger.debug("Parsing command line arguments")
     import argparse
 
     parser = argparse.ArgumentParser()
