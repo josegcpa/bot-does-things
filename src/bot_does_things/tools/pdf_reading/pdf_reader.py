@@ -38,9 +38,6 @@ THRESHOLDS = {
         "band_gap_multiplier": 3.0,
         "gutter_margin_frac": 0.02,
     },
-    "title": {
-        "max_width_to_median": 0.92,
-    },
     "table_legend": {
         "lines_above": 5,
     },
@@ -532,13 +529,8 @@ def _classify_titles_and_merge(
         is_title = False
         # Heuristics:
         # - Titles usually do not end with '.'
-        # - Titles usually do not span full body text width (relative to median body width)
         # - Font size should be larger than body size, OR be emphasized and look like a heading.
-        if (
-            text
-            and not text.endswith(".")
-            and width_to_median < THRESHOLDS["title"]["max_width_to_median"]
-        ):
+        if text and not text.endswith("."):
             if round(size, 1) > float(body_size):
                 is_title = True
             elif (
