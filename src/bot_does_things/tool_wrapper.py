@@ -3,17 +3,12 @@ Includes a decorating wrapper for tools that adds minimal logging and error
 handling.
 """
 
-import logging
 from functools import wraps
 
-from bot_does_things.config import LOGGING_LEVEL, RETURN_EXCEPTION_AS_STR
+from bot_does_things.config import RETURN_EXCEPTION_AS_STR
+from bot_does_things.logger import get_logger
 
-logger = logging.getLogger(__name__)
-logger.handlers = []
-_handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-logger.addHandler(_handler)
-logger.setLevel(LOGGING_LEVEL)
+logger = get_logger(__name__)
 
 
 def tool_wrapper(func):
